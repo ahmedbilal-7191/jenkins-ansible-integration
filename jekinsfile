@@ -1,0 +1,63 @@
+pipeline {
+    agent any
+
+    environment {
+        // Using Jenkins credentials plugin to store values securely
+        // TARGET_HOST_IP = credentials('TARGET_HOST_IP') // Example: "ec2-12-34-56-78.compute-1.amazonaws.com"
+        TARGET_HOST_IP = '1.2.3.4'
+    }
+
+    stages {
+        stage('Checkout Code') {
+            steps {
+                git branch: 'main', url: 'https://github.com/tarun-asthana/java-web-app-ci.git'
+            }
+        }
+        
+        stage('Setup SSH Key') {
+            steps {
+                // Bind secret file to a variable
+                withCredentials([file(credentialsId: 'Ansible_Private_Key', variable: 'EC2_KEY_FILE')]) {
+                    sh '''
+                        # Create .ssh directory
+                        mkdir -p ~/.ssh
+                        chmod 700 ~/.ssh
+                        
+                        # Copy key into id_rsa
+                        cp "$EC2_KEY_FILE" ~/.ssh/id_rsa
+                        chmod 600 ~/.ssh/id_rsa
+
+                    '''
+                }
+            }
+        }
+
+        stage('Setup SSH Key Host') {
+            steps {
+                sh '''
+                    # Add target host to known_hosts to avoid interactive prompt
+                    ssh-keyscan -H "$TARGET_HOST_IP" >> ~/.ssh/known_hosts
+                '''
+            }
+        }
+
+        stage('Create Inventory') {
+            steps {
+                sh '''
+                    echo "[target]" > inventory.ini
+                    echo "$TARGET_HOST_IP" >> inventory.ini
+                '''
+            }
+        }
+
+        stage('Run Ansible Playbook') {
+            steps {
+                sh '''
+                    ansible-playbook -i inventory.ini playbook.yaml \
+                    --private-key ~/.ssh/id_rsa \
+                    -u ubuntu   # change if your EC2 username differs
+                '''
+            }
+        }
+    }
+}
